@@ -28,13 +28,22 @@ public class Query {
   private PreparedStatement tranCountStatement;
 
   // TODO: YOUR CODE HERE
+  private static final String CLEAR_TABLE = "DELETE FROM ?";
+  private PreparedStatement clearTableStatement;
+
+  private static final String CREATE_USER = "INSERT INTO USERS (username, password, salt, balance) VALUES (?, ?, ?, ?)";
+  private PreparedStatement createUserStatement;
+
+  private static final String FIND_USER = "SELECT * FROM USERS WHERE username = ?";
+  private PreparedStatement findUserStatement;
+
+  private User user;
 
   public Query() throws SQLException, IOException {
     this(null, null, null, null);
   }
 
-  protected Query(String serverURL, String dbName, String adminName, String password)
-      throws SQLException, IOException {
+  protected Query(String serverURL, String dbName, String adminName, String password) throws SQLException, IOException {
     conn = serverURL == null ? openConnectionFromDbConn()
         : openConnectionFromCredential(serverURL, dbName, adminName, password);
 
@@ -68,11 +77,10 @@ public class Query {
    *
    * @throws SQLException
    */
-  protected static Connection openConnectionFromCredential(String serverURL, String dbName,
-      String adminName, String password) throws SQLException {
-    String connectionUrl =
-        String.format("jdbc:sqlserver://%s:1433;databaseName=%s;user=%s;password=%s", serverURL,
-            dbName, adminName, password);
+  protected static Connection openConnectionFromCredential(String serverURL, String dbName, String adminName,
+      String password) throws SQLException {
+    String connectionUrl = String.format("jdbc:sqlserver://%s:1433;databaseName=%s;user=%s;password=%s", serverURL,
+        dbName, adminName, password);
     Connection conn = DriverManager.getConnection(connectionUrl);
 
     // By default, automatically commit after each statement
@@ -105,7 +113,11 @@ public class Query {
    */
   public void clearTables() {
     try {
-      // TODO: YOUR CODE HERE
+      clearTableStatement.setString(1, "USERS");
+      clearTableStatement.execute();
+
+      clearTableStatement.setString(1, "RESERVATIONS");
+      clearTableStatement.execute();
     } catch (Exception e) {
       e.printStackTrace();
     }
@@ -118,6 +130,9 @@ public class Query {
     checkFlightCapacityStatement = conn.prepareStatement(CHECK_FLIGHT_CAPACITY);
     tranCountStatement = conn.prepareStatement(TRANCOUNT_SQL);
     // TODO: YOUR CODE HERE
+    clearTableStatement = conn.prepareStatement(CLEAR_TABLE);
+    createUserStatement = conn.prepareStatement(CREATE_USER);
+    findUserStatement = conn.prepareStatement(FIND_USER);
   }
 
   /**
@@ -126,12 +141,47 @@ public class Query {
    * @param username user's username
    * @param password user's password
    *
-   * @return If someone has already logged in, then return "User already logged in\n" For all other
-   *         errors, return "Login failed\n". Otherwise, return "Logged in as [username]\n".
+   * @return If someone has already logged in, then return "User already logged
+   *         in\n" For all other errors, return "Login failed\n". Otherwise,
+   *         return "Logged in as [username]\n".
    */
   public String transaction_login(String username, String password) {
     try {
       // TODO: YOUR CODE HERE
+      if (user != null) {
+        return "User already logged in\n";
+      }
+
+      findUserStatement.setString(1, username.toLowerCase());
+      ResultSet rs = findUserStatement.executeQuery();
+
+      if (!rs.next()) {
+        return "Login failed\n";
+      }
+
+      byte[] salt = rs.getBytes(3);
+
+      // Specify the hash parameters
+      KeySpec spec = new PBEKeySpec(password.toCharArray(), salt, HASH_STRENGTH, KEY_LENGTH);
+
+      // Generate the hash
+      SecretKeyFactory factory = null;
+      byte[] hash = null;
+      try {
+        factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
+        hash = factory.generateSecret(spec).getEncoded();
+      } catch (NoSuchAlgorithmException | InvalidKeySpecException ex) {
+        throw new IllegalStateException();
+      }
+
+      if (!Arrays.equals(rs.getBytes(2), hash)) {
+        return "Login failed\n";
+      }
+
+      user = new User(rs.getString(1), rs.getInt(4));
+
+      return "Logged in as " + username + "\n";
+    } catch (Exception e) {
       return "Login failed\n";
     } finally {
       checkDanglingTransaction();
@@ -143,14 +193,45 @@ public class Query {
    *
    * @param username   new user's username. User names are unique the system.
    * @param password   new user's password.
-   * @param initAmount initial amount to deposit into the user's account, should be >= 0 (failure
-   *                   otherwise).
+   * @param initAmount initial amount to deposit into the user's account, should
+   *                   be >= 0 (failure otherwise).
    *
-   * @return either "Created user {@code username}\n" or "Failed to create user\n" if failed.
+   * @return either "Created user {@code username}\n" or "Failed to create user\n"
+   *         if failed.
    */
   public String transaction_createCustomer(String username, String password, int initAmount) {
     try {
       // TODO: YOUR CODE HERE
+      if (initAmount < 0) {
+        return "Failed to create user\n";
+      }
+
+      // Generate a random cryptographic salt
+      SecureRandom random = new SecureRandom();
+      byte[] salt = new byte[16];
+      random.nextBytes(salt);
+
+      // Specify the hash parameters
+      KeySpec spec = new PBEKeySpec(password.toCharArray(), salt, HASH_STRENGTH, KEY_LENGTH);
+
+      // Generate the hash
+      SecretKeyFactory factory = null;
+      byte[] hash = null;
+      try {
+        factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA1");
+        hash = factory.generateSecret(spec).getEncoded();
+      } catch (NoSuchAlgorithmException | InvalidKeySpecException ex) {
+        throw new IllegalStateException();
+      }
+
+      createUserStatement.setString(1, username.toLowerCase());
+      createUserStatement.setBytes(2, hash);
+      createUserStatement.setBytes(3, salt);
+      createUserStatement.setInt(4, initAmount);
+      createUserStatement.execute();
+
+      return "Created user " + username + "\n";
+    } catch (Exception e) {
       return "Failed to create user\n";
     } finally {
       checkDanglingTransaction();
@@ -160,35 +241,38 @@ public class Query {
   /**
    * Implement the search function.
    *
-   * Searches for flights from the given origin city to the given destination city, on the given day
-   * of the month. If {@code directFlight} is true, it only searches for direct flights, otherwise
-   * is searches for direct flights and flights with two "hops." Only searches for up to the number
-   * of itineraries given by {@code numberOfItineraries}.
+   * Searches for flights from the given origin city to the given destination
+   * city, on the given day of the month. If {@code directFlight} is true, it only
+   * searches for direct flights, otherwise is searches for direct flights and
+   * flights with two "hops." Only searches for up to the number of itineraries
+   * given by {@code numberOfItineraries}.
    *
    * The results are sorted based on total flight time.
    *
    * @param originCity
    * @param destinationCity
-   * @param directFlight        if true, then only search for direct flights, otherwise include
-   *                            indirect flights as well
+   * @param directFlight        if true, then only search for direct flights,
+   *                            otherwise include indirect flights as well
    * @param dayOfMonth
    * @param numberOfItineraries number of itineraries to return
    *
-   * @return If no itineraries were found, return "No flights match your selection\n". If an error
-   *         occurs, then return "Failed to search\n".
+   * @return If no itineraries were found, return "No flights match your
+   *         selection\n". If an error occurs, then return "Failed to search\n".
    *
    *         Otherwise, the sorted itineraries printed in the following format:
    *
-   *         Itinerary [itinerary number]: [number of flights] flight(s), [total flight time]
-   *         minutes\n [first flight in itinerary]\n ... [last flight in itinerary]\n
+   *         Itinerary [itinerary number]: [number of flights] flight(s), [total
+   *         flight time] minutes\n [first flight in itinerary]\n ... [last flight
+   *         in itinerary]\n
    *
-   *         Each flight should be printed using the same format as in the {@code Flight} class.
-   *         Itinerary numbers in each search should always start from 0 and increase by 1.
+   *         Each flight should be printed using the same format as in the
+   *         {@code Flight} class. Itinerary numbers in each search should always
+   *         start from 0 and increase by 1.
    *
    * @see Flight#toString()
    */
-  public String transaction_search(String originCity, String destinationCity, boolean directFlight,
-      int dayOfMonth, int numberOfItineraries) {
+  public String transaction_search(String originCity, String destinationCity, boolean directFlight, int dayOfMonth,
+      int numberOfItineraries) {
     try {
       // WARNING the below code is unsafe and only handles searches for direct flights
       // You can use the below code as a starting reference point or you can get rid
@@ -201,10 +285,9 @@ public class Query {
       try {
         // one hop itineraries
         String unsafeSearchSQL = "SELECT TOP (" + numberOfItineraries
-            + ") day_of_month,carrier_id,flight_num,origin_city,dest_city,actual_time,capacity,price "
-            + "FROM Flights " + "WHERE origin_city = \'" + originCity + "\' AND dest_city = \'"
-            + destinationCity + "\' AND day_of_month =  " + dayOfMonth + " "
-            + "ORDER BY actual_time ASC";
+            + ") day_of_month,carrier_id,flight_num,origin_city,dest_city,actual_time,capacity,price " + "FROM Flights "
+            + "WHERE origin_city = \'" + originCity + "\' AND dest_city = \'" + destinationCity
+            + "\' AND day_of_month =  " + dayOfMonth + " " + "ORDER BY actual_time ASC";
 
         Statement searchStatement = conn.createStatement();
         ResultSet oneHopResults = searchStatement.executeQuery(unsafeSearchSQL);
@@ -219,10 +302,9 @@ public class Query {
           int result_capacity = oneHopResults.getInt("capacity");
           int result_price = oneHopResults.getInt("price");
 
-          sb.append("Day: " + result_dayOfMonth + " Carrier: " + result_carrierId + " Number: "
-              + result_flightNum + " Origin: " + result_originCity + " Destination: "
-              + result_destCity + " Duration: " + result_time + " Capacity: " + result_capacity
-              + " Price: " + result_price + "\n");
+          sb.append("Day: " + result_dayOfMonth + " Carrier: " + result_carrierId + " Number: " + result_flightNum
+              + " Origin: " + result_originCity + " Destination: " + result_destCity + " Duration: " + result_time
+              + " Capacity: " + result_capacity + " Price: " + result_price + "\n");
         }
         oneHopResults.close();
       } catch (SQLException e) {
@@ -238,19 +320,21 @@ public class Query {
   /**
    * Implements the book itinerary function.
    *
-   * @param itineraryId ID of the itinerary to book. This must be one that is returned by search in
-   *                    the current session.
+   * @param itineraryId ID of the itinerary to book. This must be one that is
+   *                    returned by search in the current session.
    *
-   * @return If the user is not logged in, then return "Cannot book reservations, not logged in\n".
-   *         If the user is trying to book an itinerary with an invalid ID or without having done a
-   *         search, then return "No such itinerary {@code itineraryId}\n". If the user already has
-   *         a reservation on the same day as the one that they are trying to book now, then return
-   *         "You cannot book two flights in the same day\n". For all other errors, return "Booking
-   *         failed\n".
+   * @return If the user is not logged in, then return "Cannot book reservations,
+   *         not logged in\n". If the user is trying to book an itinerary with an
+   *         invalid ID or without having done a search, then return "No such
+   *         itinerary {@code itineraryId}\n". If the user already has a
+   *         reservation on the same day as the one that they are trying to book
+   *         now, then return "You cannot book two flights in the same day\n". For
+   *         all other errors, return "Booking failed\n".
    *
-   *         And if booking succeeded, return "Booked flight(s), reservation ID: [reservationId]\n"
-   *         where reservationId is a unique number in the reservation system that starts from 1 and
-   *         increments by 1 each time a successful reservation is made by any user in the system.
+   *         And if booking succeeded, return "Booked flight(s), reservation ID:
+   *         [reservationId]\n" where reservationId is a unique number in the
+   *         reservation system that starts from 1 and increments by 1 each time a
+   *         successful reservation is made by any user in the system.
    */
   public String transaction_book(int itineraryId) {
     try {
@@ -266,15 +350,17 @@ public class Query {
    *
    * @param reservationId the reservation to pay for.
    *
-   * @return If no user has logged in, then return "Cannot pay, not logged in\n" If the reservation
-   *         is not found / not under the logged in user's name, then return "Cannot find unpaid
-   *         reservation [reservationId] under user: [username]\n" If the user does not have enough
-   *         money in their account, then return "User has only [balance] in account but itinerary
-   *         costs [cost]\n" For all other errors, return "Failed to pay for reservation
-   *         [reservationId]\n"
+   * @return If no user has logged in, then return "Cannot pay, not logged in\n"
+   *         If the reservation is not found / not under the logged in user's
+   *         name, then return "Cannot find unpaid reservation [reservationId]
+   *         under user: [username]\n" If the user does not have enough money in
+   *         their account, then return "User has only [balance] in account but
+   *         itinerary costs [cost]\n" For all other errors, return "Failed to pay
+   *         for reservation [reservationId]\n"
    *
-   *         If successful, return "Paid reservation: [reservationId] remaining balance:
-   *         [balance]\n" where [balance] is the remaining balance in the user's account.
+   *         If successful, return "Paid reservation: [reservationId] remaining
+   *         balance: [balance]\n" where [balance] is the remaining balance in the
+   *         user's account.
    */
   public String transaction_pay(int reservationId) {
     try {
@@ -288,18 +374,20 @@ public class Query {
   /**
    * Implements the reservations function.
    *
-   * @return If no user has logged in, then return "Cannot view reservations, not logged in\n" If
-   *         the user has no reservations, then return "No reservations found\n" For all other
-   *         errors, return "Failed to retrieve reservations\n"
+   * @return If no user has logged in, then return "Cannot view reservations, not
+   *         logged in\n" If the user has no reservations, then return "No
+   *         reservations found\n" For all other errors, return "Failed to
+   *         retrieve reservations\n"
    *
    *         Otherwise return the reservations in the following format:
    *
-   *         Reservation [reservation ID] paid: [true or false]:\n [flight 1 under the
-   *         reservation]\n [flight 2 under the reservation]\n Reservation [reservation ID] paid:
-   *         [true or false]:\n [flight 1 under the reservation]\n [flight 2 under the
-   *         reservation]\n ...
+   *         Reservation [reservation ID] paid: [true or false]:\n [flight 1 under
+   *         the reservation]\n [flight 2 under the reservation]\n Reservation
+   *         [reservation ID] paid: [true or false]:\n [flight 1 under the
+   *         reservation]\n [flight 2 under the reservation]\n ...
    *
-   *         Each flight should be printed using the same format as in the {@code Flight} class.
+   *         Each flight should be printed using the same format as in the
+   *         {@code Flight} class.
    *
    * @see Flight#toString()
    */
@@ -317,12 +405,14 @@ public class Query {
    *
    * @param reservationId the reservation ID to cancel
    *
-   * @return If no user has logged in, then return "Cannot cancel reservations, not logged in\n" For
-   *         all other errors, return "Failed to cancel reservation [reservationId]\n"
+   * @return If no user has logged in, then return "Cannot cancel reservations,
+   *         not logged in\n" For all other errors, return "Failed to cancel
+   *         reservation [reservationId]\n"
    *
    *         If successful, return "Canceled reservation [reservationId]\n"
    *
-   *         Even though a reservation has been canceled, its ID should not be reused by the system.
+   *         Even though a reservation has been canceled, its ID should not be
+   *         reused by the system.
    */
   public String transaction_cancel(int reservationId) {
     try {
@@ -388,9 +478,23 @@ public class Query {
 
     @Override
     public String toString() {
-      return "ID: " + fid + " Day: " + dayOfMonth + " Carrier: " + carrierId + " Number: "
-          + flightNum + " Origin: " + originCity + " Dest: " + destCity + " Duration: " + time
-          + " Capacity: " + capacity + " Price: " + price;
+      return "ID: " + fid + " Day: " + dayOfMonth + " Carrier: " + carrierId + " Number: " + flightNum + " Origin: "
+          + originCity + " Dest: " + destCity + " Duration: " + time + " Capacity: " + capacity + " Price: " + price;
+    }
+  }
+
+  class User {
+    public String username;
+    public int balance;
+
+    public User(String username, int balance) {
+      this.username = username;
+      this.balance = balance;
+    }
+
+    @Override
+    public String toString() {
+      return "username: " + username + " balance: " + balance;
     }
   }
 }
