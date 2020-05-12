@@ -42,7 +42,7 @@
                         <test.cases>cases</test.cases>
                     </systemPropertyVariables>
                     <enableProcessChecker>all</enableProcessChecker>
-                    <useSystemClassLoader>false</useSystemClassLoader>
+                    <useSystemClassLoader>true</useSystemClassLoader>
                     <additionalClasspathElements>
                         <additionalClasspathElement>${project.basedir}/distributed.jar</additionalClasspathElement>
                     </additionalClasspathElements>

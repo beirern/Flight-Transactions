@@ -1,0 +1,11 @@
+# user 1 inputs
+#
+login user1 wrongPassword
+quit
+*
+#
+# expected printouts for user 1
+#
+Login failed
+Goodbye
+*

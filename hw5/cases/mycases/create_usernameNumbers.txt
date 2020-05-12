@@ -1,0 +1,9 @@
+#
+# create a single user
+create 12345 1 100
+quit
+*
+#
+Created user 12345
+Goodbye
+*
