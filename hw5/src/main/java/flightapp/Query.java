@@ -27,8 +27,8 @@ public class Query {
   private static final String TRANCOUNT_SQL = "SELECT @@TRANCOUNT AS tran_count";
   private PreparedStatement tranCountStatement;
 
-  private static final String CLEAR_TABLES = "DELETE FROM USERS";
-  private PreparedStatement clearTablesStatement;
+  private static final String CLEAR_USERS_TABLE = "DELETE FROM USERS";
+  private PreparedStatement clearUsersTableStatement;
 
   private static final String CREATE_USER = "INSERT INTO USERS (username, password, salt, balance) VALUES (?, ?, ?, ?)";
   private PreparedStatement createUserStatement;
@@ -125,8 +125,8 @@ public class Query {
    */
   public void clearTables() {
     try {
-      clearTablesStatement.executeUpdate();
-      clearTablesStatement.close();
+      clearUsersTableStatement.executeUpdate();
+      clearUsersTableStatement.close();
     } catch (Exception e) {
       e.printStackTrace();
     }
@@ -138,7 +138,7 @@ public class Query {
   private void prepareStatements() throws SQLException {
     checkFlightCapacityStatement = conn.prepareStatement(CHECK_FLIGHT_CAPACITY);
     tranCountStatement = conn.prepareStatement(TRANCOUNT_SQL);
-    clearTablesStatement = conn.prepareStatement(CLEAR_TABLES);
+    clearUsersTableStatement = conn.prepareStatement(CLEAR_USERS_TABLE);
     createUserStatement = conn.prepareStatement(CREATE_USER);
     findUserStatement = conn.prepareStatement(FIND_USER);
     getDirectFlightsStatement = conn.prepareStatement(GET_DIRECT_FLIGHTS);
