@@ -1,6 +1,6 @@
 # user 1 inputs
 #
-login user1 wrongPassword
+login notMadeUser wrongPassword
 quit
 *
 #
