@@ -10,4 +10,4 @@ BEGIN
         salt VARBINARY(128) NOT NULL,
         balance INT NOT NULL,
     )
-END
+END;
