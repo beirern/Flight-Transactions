@@ -11,5 +11,3 @@ BEGIN
         balance INT NOT NULL,
     )
 END
-
-DELETE FROM USERS;
