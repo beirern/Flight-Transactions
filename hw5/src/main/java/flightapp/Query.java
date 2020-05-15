@@ -30,6 +30,9 @@ public class Query {
   private static final String CLEAR_USERS_TABLE = "DELETE FROM USERS";
   private PreparedStatement clearUsersTableStatement;
 
+  private static final String CLEAR_RESERVATOINS_TABLE = "DELETE FROM RESERVATIONS";
+  private PreparedStatement clearReservationsTableStatement;
+
   private static final String CREATE_USER = "INSERT INTO USERS (username, password, salt, balance) VALUES (?, ?, ?, ?)";
   private PreparedStatement createUserStatement;
 
@@ -49,7 +52,30 @@ public class Query {
       + "AND F1.day_of_month = ? AND F2.day_of_month = ? AND F2.canceled = 0 ORDER BY F1.actual_time + F2.actual_time ASC, F1.fid ASC, F2.fid ASC";
   private PreparedStatement getIndirectFlightsStatement;
 
+  private static final String GET_RESERVATIONS = "SELECT * FROM RESERVATIONS WHERE userid = ?";
+  private PreparedStatement getReservationsStatement;
+
+  private static final String GET_SINGLE_FLIGHT = "SELECT fid, day_of_month, carrier_id, flight_num, origin_city, dest_city, actual_time, capacity, price "
+      + "FROM FLIGHTS WHERE fid = ?";
+  private PreparedStatement getSingleFlightStatement;
+
+  private static final String GET_ALL_FLIGHT_CAPACITIES = "WITH FlightOne(flight1, count) AS (SELECT flight1, Count(flight1) FROM RESERVATIONS GROUP BY flight1), "
+      + "FlightTwo(flight2, count) AS (SELECT flight2, Count(flight2) FROM RESERVATIONS GROUP BY flight2) "
+      + "SELECT FO.flight1 AS fid1, FO.count AS count1, FT.flight2 AS fid2, FT.count AS count2 FROM FlightOne AS FO, FlightTwo AS FT";
+  private PreparedStatement getAllFlightCapacities;
+
+  private static final String CREATE_RESERVATION = "INSERT INTO RESERVATIONS (userid, flight1, flight2, paid, cancelled) VALUES (?, ?, ?, ?, ?)";
+  private PreparedStatement createReservationStatement;
+
+  private static final String GET_TWO_FLIGHT_RESERVATION = "SELECT id FROM RESERVATIONS WHERE flight1 = ? AND flight2 = ?";
+  private PreparedStatement getTwoFlightReservationStatement;
+
+  private static final String GET_ONE_FLIGHT_RESERVATION = "SELECT id FROM RESERVATIONS WHERE flight1 = ? AND flight2 is NULL";
+  private PreparedStatement getOneFlightReservationStatement;
+
   private User user;
+  private List<Flight> directFlights;
+  private List<List<Flight>> totalFlightsList;
 
   public Query() throws SQLException, IOException {
     this(null, null, null, null);
@@ -125,6 +151,9 @@ public class Query {
    */
   public void clearTables() {
     try {
+      clearReservationsTableStatement.executeUpdate();
+      clearReservationsTableStatement.close();
+
       clearUsersTableStatement.executeUpdate();
       clearUsersTableStatement.close();
     } catch (Exception e) {
@@ -139,10 +168,17 @@ public class Query {
     checkFlightCapacityStatement = conn.prepareStatement(CHECK_FLIGHT_CAPACITY);
     tranCountStatement = conn.prepareStatement(TRANCOUNT_SQL);
     clearUsersTableStatement = conn.prepareStatement(CLEAR_USERS_TABLE);
+    clearReservationsTableStatement = conn.prepareStatement(CLEAR_RESERVATOINS_TABLE);
     createUserStatement = conn.prepareStatement(CREATE_USER);
     findUserStatement = conn.prepareStatement(FIND_USER);
     getDirectFlightsStatement = conn.prepareStatement(GET_DIRECT_FLIGHTS);
     getIndirectFlightsStatement = conn.prepareStatement(GET_INDIRECT_FLIGHTS);
+    getReservationsStatement = conn.prepareStatement(GET_RESERVATIONS);
+    getSingleFlightStatement = conn.prepareStatement(GET_SINGLE_FLIGHT);
+    getAllFlightCapacities = conn.prepareStatement(GET_ALL_FLIGHT_CAPACITIES);
+    createReservationStatement = conn.prepareStatement(CREATE_RESERVATION);
+    getTwoFlightReservationStatement = conn.prepareStatement(GET_TWO_FLIGHT_RESERVATION);
+    getOneFlightReservationStatement = conn.prepareStatement(GET_ONE_FLIGHT_RESERVATION);
   }
 
   /**
@@ -289,7 +325,8 @@ public class Query {
       // of it all and replace it with your own implementation.
       //
       StringBuffer sb = new StringBuffer();
-      List<Flight> directFlights = new ArrayList<>();
+      directFlights = new ArrayList<>();
+      totalFlightsList = new ArrayList<>();
 
       try {
         if (directFlight) {
@@ -299,6 +336,8 @@ public class Query {
             sb.append("Itinerary " + i + ": 1 flight(s), " + directFlights.get(i).time + " minutes\n");
             sb.append(directFlights.get(i));
           }
+
+          totalFlightsList.clear();
         } else {
           directFlights = getAllDirectFlights(originCity, destinationCity, dayOfMonth, numberOfItineraries);
 
@@ -357,6 +396,9 @@ public class Query {
                       "Itinerary " + i + ": 1 flight(s), " + directFlights.get(directFlightsIndex).time + " minutes\n");
                   sb.append(directFlights.get(directFlightsIndex));
                   directFlightsIndex++;
+
+                  totalFlightsList.add(new ArrayList<Flight>());
+                  totalFlightsList.get(totalFlightsList.size() - 1).add(directFlights.get(directFlightsIndex));
                 } else if (directFlights
                     .get(directFlightsIndex).time > indirectFlightsList.get(indirectFlightsIndex).get(0).time
                         + indirectFlightsList.get(indirectFlightsIndex).get(1).time) {
@@ -366,6 +408,12 @@ public class Query {
                   sb.append(indirectFlightsList.get(indirectFlightsIndex).get(0));
                   sb.append(indirectFlightsList.get(indirectFlightsIndex).get(1));
                   indirectFlightsIndex++;
+
+                  totalFlightsList.add(new ArrayList<Flight>());
+                  totalFlightsList.get(totalFlightsList.size() - 1)
+                      .add(indirectFlightsList.get(indirectFlightsIndex).get(0));
+                  totalFlightsList.get(totalFlightsList.size() - 1)
+                      .add(indirectFlightsList.get(indirectFlightsIndex).get(1));
                 } else {
                   if (directFlights.get(directFlightsIndex).fid < indirectFlightsList.get(indirectFlightsIndex)
                       .get(0).fid) {
@@ -373,6 +421,9 @@ public class Query {
                         + " minutes\n");
                     sb.append(directFlights.get(directFlightsIndex));
                     directFlightsIndex++;
+
+                    totalFlightsList.add(new ArrayList<Flight>());
+                    totalFlightsList.get(totalFlightsList.size() - 1).add(directFlights.get(directFlightsIndex));
                   } else {
                     sb.append("Itinerary " + i + ": 2 flight(s), "
                         + (indirectFlightsList.get(indirectFlightsIndex).get(0).time
@@ -381,6 +432,12 @@ public class Query {
                     sb.append(indirectFlightsList.get(indirectFlightsIndex).get(0));
                     sb.append(indirectFlightsList.get(indirectFlightsIndex).get(1));
                     indirectFlightsIndex++;
+
+                    totalFlightsList.add(new ArrayList<Flight>());
+                    totalFlightsList.get(totalFlightsList.size() - 1)
+                        .add(indirectFlightsList.get(indirectFlightsIndex).get(0));
+                    totalFlightsList.get(totalFlightsList.size() - 1)
+                        .add(indirectFlightsList.get(indirectFlightsIndex).get(1));
                   }
                 }
               } else if (directFlightsIndex < directFlights.size()) {
@@ -388,6 +445,9 @@ public class Query {
                     "Itinerary " + i + ": 1 flight(s), " + directFlights.get(directFlightsIndex).time + " minutes\n");
                 sb.append(directFlights.get(directFlightsIndex));
                 directFlightsIndex++;
+
+                totalFlightsList.add(new ArrayList<Flight>());
+                totalFlightsList.get(totalFlightsList.size() - 1).add(directFlights.get(directFlightsIndex));
               } else if (indirectFlightsIndex < indirectFlightsList.size()) {
                 sb.append(
                     "Itinerary " + i + ": 2 flight(s), " + (indirectFlightsList.get(indirectFlightsIndex).get(0).time
@@ -395,13 +455,23 @@ public class Query {
                 sb.append(indirectFlightsList.get(indirectFlightsIndex).get(0));
                 sb.append(indirectFlightsList.get(indirectFlightsIndex).get(1));
                 indirectFlightsIndex++;
+
+                totalFlightsList.add(new ArrayList<Flight>());
+                totalFlightsList.get(totalFlightsList.size() - 1)
+                    .add(indirectFlightsList.get(indirectFlightsIndex).get(0));
+                totalFlightsList.get(totalFlightsList.size() - 1)
+                    .add(indirectFlightsList.get(indirectFlightsIndex).get(1));
               }
             }
+
+            directFlights.clear();
           } else {
             for (int i = 0; i < directFlights.size(); i++) {
               sb.append("Itinerary " + i + ": 1 flight(s), " + directFlights.get(i).time + " minutes\n");
               sb.append(directFlights.get(i));
             }
+
+            totalFlightsList.clear();
           }
         }
       } catch (SQLException e) {
@@ -470,8 +540,183 @@ public class Query {
    */
   public String transaction_book(int itineraryId) {
     try {
-      // TODO: YOUR CODE HERE
-      return "Booking failed\n";
+      if (user == null) {
+        return "Cannot book reservations, not logged in\n";
+      }
+
+      if (totalFlightsList.size() == 0 && directFlights.size() == 0) {
+        return "No such itinerary " + itineraryId + "\n";
+      }
+
+      if (totalFlightsList.size() > 0 && itineraryId > totalFlightsList.size() - 1) {
+        return "No such itinerary " + itineraryId + "\n";
+      }
+
+      if (directFlights.size() > 0 && itineraryId > directFlights.size() - 1) {
+        return "No such itinerary " + itineraryId + "\n";
+      }
+
+      List<Flight> flights = new ArrayList<>();
+
+      if (directFlights.size() > 0) {
+        flights.add(directFlights.get(itineraryId));
+      } else {
+        for (Flight f : totalFlightsList.get(itineraryId)) {
+          flights.add(f);
+        }
+      }
+
+      List<Reservation> reservations = new ArrayList<>();
+
+      try {
+        getReservationsStatement.clearParameters();
+        getReservationsStatement.setString(1, user.username.toLowerCase());
+
+        ResultSet allReservations = getReservationsStatement.executeQuery();
+        while (allReservations.next()) {
+          int id = allReservations.getInt("id");
+          int flightOneId = allReservations.getInt("flight1");
+          int flightTwoId = allReservations.getInt("flight2");
+          int paid = allReservations.getInt("paid");
+          int cancelled = allReservations.getInt("cancelled");
+
+          Flight flightOne = null;
+          Flight flightTwo = null;
+
+          try {
+            getSingleFlightStatement.clearParameters();
+            getSingleFlightStatement.setInt(1, flightOneId);
+
+            ResultSet rs = getSingleFlightStatement.executeQuery();
+            rs.next();
+
+            int result_fid = rs.getInt("fid");
+            int result_dayOfMonth = rs.getInt("day_of_month");
+            String result_carrierId = rs.getString("carrier_id");
+            String result_flightNum = rs.getString("flight_num");
+            String result_originCity = rs.getString("origin_city");
+            String result_destCity = rs.getString("dest_city");
+            int result_time = rs.getInt("actual_time");
+            int result_capacity = rs.getInt("capacity");
+            int result_price = rs.getInt("price");
+
+            flightOne = new Flight(result_fid, result_dayOfMonth, result_carrierId, result_flightNum, result_originCity,
+                result_destCity, result_time, result_capacity, result_price);
+          } catch (Exception e) {
+            return "Booking failed\n";
+          }
+
+          if (flightTwoId != 0) {
+            try {
+              getSingleFlightStatement.clearParameters();
+              getSingleFlightStatement.setInt(1, flightTwoId);
+
+              ResultSet rs = getSingleFlightStatement.executeQuery();
+              rs.next();
+
+              int result_fid = rs.getInt("fid");
+              int result_dayOfMonth = rs.getInt("day_of_month");
+              String result_carrierId = rs.getString("carrier_id");
+              String result_flightNum = rs.getString("flight_num");
+              String result_originCity = rs.getString("origin_city");
+              String result_destCity = rs.getString("dest_city");
+              int result_time = rs.getInt("actual_time");
+              int result_capacity = rs.getInt("capacity");
+              int result_price = rs.getInt("price");
+
+              flightTwo = new Flight(result_fid, result_dayOfMonth, result_carrierId, result_flightNum,
+                  result_originCity, result_destCity, result_time, result_capacity, result_price);
+            } catch (Exception e) {
+              System.out.println(e);
+              System.out.println("HIH");
+              return "Booking failed\n";
+            }
+          }
+
+          reservations.add(new Reservation(id, flightOne, flightTwo, paid, cancelled));
+        }
+      } catch (Exception e) {
+        System.out.println(e);
+        System.out.println("Third to Last");
+        return "Booking failed\n";
+      }
+
+      for (Reservation r : reservations) {
+        if (r.flightOne.dayOfMonth == flights.get(0).dayOfMonth) {
+          return "You cannot book two flights in the same day\n";
+        }
+      }
+
+      Map<Integer, Integer> flightCapacities = new HashMap<>();
+      try {
+        getAllFlightCapacities.clearParameters();
+        ResultSet rs = getAllFlightCapacities.executeQuery();
+
+        while (rs.next()) {
+          if (rs.getInt("fid1") != 0) {
+            flightCapacities.put(rs.getInt("fid1"), rs.getInt("count1"));
+          }
+          if (rs.getInt("fid2") != 0) {
+            flightCapacities.put(rs.getInt("fid2"), rs.getInt("count2"));
+          }
+        }
+
+        for (Flight f : flights) {
+          if (flightCapacities.containsKey(f.fid)) {
+            if (flightCapacities.get(f.fid) + 1 > f.capacity) {
+              return "Booking Failed\n";
+            }
+          }
+        }
+      } catch (Exception e) {
+        return "Booking failed\n";
+      }
+
+      try {
+        createReservationStatement.clearParameters();
+        createReservationStatement.setString(1, user.username.toLowerCase());
+        createReservationStatement.setInt(2, flights.get(0).fid);
+        createReservationStatement.setInt(4, 0);
+        createReservationStatement.setInt(5, 0);
+
+        if (flights.size() == 2) {
+          createReservationStatement.setInt(3, flights.get(1).fid);
+        } else {
+          createReservationStatement.setNull(3, java.sql.Types.INTEGER);
+        }
+
+        createReservationStatement.execute();
+      } catch (Exception e) {
+        System.out.println(e);
+        System.out.println("Second to Last");
+        return "Booking Failed\n";
+      }
+
+      int id;
+      try {
+        ResultSet rs;
+        if (flights.size() == 2) {
+          getTwoFlightReservationStatement.clearParameters();
+          getTwoFlightReservationStatement.setInt(1, flights.get(0).fid);
+          getTwoFlightReservationStatement.setInt(2, flights.get(1).fid);
+
+          rs = getTwoFlightReservationStatement.executeQuery();
+        } else {
+          getOneFlightReservationStatement.clearParameters();
+          getOneFlightReservationStatement.setInt(1, flights.get(0).fid);
+
+          rs = getOneFlightReservationStatement.executeQuery();
+        }
+        rs.next();
+
+        id = rs.getInt("id");
+      } catch (Exception e) {
+        System.out.println(e);
+        System.out.println("Last");
+        return "Booking Failed\n";
+      }
+
+      return "Booked flight(s), reservation ID: " + id + "\n";
     } finally {
       checkDanglingTransaction();
     }
@@ -641,6 +886,28 @@ public class Query {
     @Override
     public String toString() {
       return "username: " + username + " balance: " + balance;
+    }
+  }
+
+  class Reservation {
+    public int id;
+    public Flight flightOne;
+    public Flight flightTwo;
+    public boolean paid;
+    public boolean canceled;
+
+    public Reservation(int id, Flight flightOne, Flight flightTwo, int paid, int canceled) {
+      this.id = id;
+      this.flightOne = flightOne;
+      this.flightTwo = flightTwo;
+      this.paid = (paid == 1);
+      this.canceled = (canceled == 1);
+    }
+
+    @Override
+    public String toString() {
+      return "id: " + id + " Flight One: " + flightOne + "Flight Two: " + flightTwo + "paid: " + paid + " canceled: "
+          + canceled;
     }
   }
 }
