@@ -10,4 +10,14 @@ BEGIN
         salt VARBINARY(128) NOT NULL,
         balance INT NOT NULL,
     )
+
+    CREATE TABLE RESERVATIONS
+    (
+        id INT IDENTITY(1, 1) PRIMARY KEY,
+        userid VARCHAR(20) FOREIGN KEY REFERENCES USERS(username),
+        flight1 INT NOT NULL,
+        flight2 INT,
+        paid INT NOT NULL,
+        cancelled INT NOT NULL
+    )
 END;
