@@ -33,6 +33,9 @@ public class Query {
   private static final String CLEAR_RESERVATOINS_TABLE = "DELETE FROM RESERVATIONS";
   private PreparedStatement clearReservationsTableStatement;
 
+  private static final String RESET_RESERVATIONS_TABLE = "DBCC CHECKIDENT ('RESERVATIONS', RESEED, 0)";
+  private PreparedStatement resetReservationsTableStatement;
+
   private static final String CREATE_USER = "INSERT INTO USERS (username, password, salt, balance) VALUES (?, ?, ?, ?)";
   private PreparedStatement createUserStatement;
 
@@ -72,6 +75,12 @@ public class Query {
 
   private static final String GET_ONE_FLIGHT_RESERVATION = "SELECT id FROM RESERVATIONS WHERE flight1 = ? AND flight2 is NULL";
   private PreparedStatement getOneFlightReservationStatement;
+
+  private static final String PAY_RESERVATION = "UPDATE RESERVATIONS SET paid = 1 WHERE id = ?";
+  private PreparedStatement payReservationStatement;
+
+  private static final String UPDATE_BALANCE = "UPDATE USERS SET balance = ? WHERE username = ?";
+  private PreparedStatement updateBalanceStatement;
 
   private User user;
   private List<Flight> directFlights;
@@ -154,6 +163,9 @@ public class Query {
       clearReservationsTableStatement.executeUpdate();
       clearReservationsTableStatement.close();
 
+      resetReservationsTableStatement.execute();
+      resetReservationsTableStatement.close();
+
       clearUsersTableStatement.executeUpdate();
       clearUsersTableStatement.close();
     } catch (Exception e) {
@@ -169,6 +181,7 @@ public class Query {
     tranCountStatement = conn.prepareStatement(TRANCOUNT_SQL);
     clearUsersTableStatement = conn.prepareStatement(CLEAR_USERS_TABLE);
     clearReservationsTableStatement = conn.prepareStatement(CLEAR_RESERVATOINS_TABLE);
+    resetReservationsTableStatement = conn.prepareStatement(RESET_RESERVATIONS_TABLE);
     createUserStatement = conn.prepareStatement(CREATE_USER);
     findUserStatement = conn.prepareStatement(FIND_USER);
     getDirectFlightsStatement = conn.prepareStatement(GET_DIRECT_FLIGHTS);
@@ -179,6 +192,8 @@ public class Query {
     createReservationStatement = conn.prepareStatement(CREATE_RESERVATION);
     getTwoFlightReservationStatement = conn.prepareStatement(GET_TWO_FLIGHT_RESERVATION);
     getOneFlightReservationStatement = conn.prepareStatement(GET_ONE_FLIGHT_RESERVATION);
+    payReservationStatement = conn.prepareStatement(PAY_RESERVATION);
+    updateBalanceStatement = conn.prepareStatement(UPDATE_BALANCE);
   }
 
   /**
@@ -320,10 +335,6 @@ public class Query {
   public String transaction_search(String originCity, String destinationCity, boolean directFlight, int dayOfMonth,
       int numberOfItineraries) {
     try {
-      // WARNING the below code is unsafe and only handles searches for direct flights
-      // You can use the below code as a starting reference point or you can get rid
-      // of it all and replace it with your own implementation.
-      //
       StringBuffer sb = new StringBuffer();
       directFlights = new ArrayList<>();
       totalFlightsList = new ArrayList<>();
@@ -395,10 +406,10 @@ public class Query {
                   sb.append(
                       "Itinerary " + i + ": 1 flight(s), " + directFlights.get(directFlightsIndex).time + " minutes\n");
                   sb.append(directFlights.get(directFlightsIndex));
-                  directFlightsIndex++;
 
                   totalFlightsList.add(new ArrayList<Flight>());
                   totalFlightsList.get(totalFlightsList.size() - 1).add(directFlights.get(directFlightsIndex));
+                  directFlightsIndex++;
                 } else if (directFlights
                     .get(directFlightsIndex).time > indirectFlightsList.get(indirectFlightsIndex).get(0).time
                         + indirectFlightsList.get(indirectFlightsIndex).get(1).time) {
@@ -407,23 +418,23 @@ public class Query {
                           + indirectFlightsList.get(indirectFlightsIndex).get(1).time) + " minutes\n");
                   sb.append(indirectFlightsList.get(indirectFlightsIndex).get(0));
                   sb.append(indirectFlightsList.get(indirectFlightsIndex).get(1));
-                  indirectFlightsIndex++;
 
                   totalFlightsList.add(new ArrayList<Flight>());
                   totalFlightsList.get(totalFlightsList.size() - 1)
                       .add(indirectFlightsList.get(indirectFlightsIndex).get(0));
                   totalFlightsList.get(totalFlightsList.size() - 1)
                       .add(indirectFlightsList.get(indirectFlightsIndex).get(1));
+                  indirectFlightsIndex++;
                 } else {
                   if (directFlights.get(directFlightsIndex).fid < indirectFlightsList.get(indirectFlightsIndex)
                       .get(0).fid) {
                     sb.append("Itinerary " + i + ": 1 flight(s), " + directFlights.get(directFlightsIndex).time
                         + " minutes\n");
                     sb.append(directFlights.get(directFlightsIndex));
-                    directFlightsIndex++;
 
                     totalFlightsList.add(new ArrayList<Flight>());
                     totalFlightsList.get(totalFlightsList.size() - 1).add(directFlights.get(directFlightsIndex));
+                    directFlightsIndex++;
                   } else {
                     sb.append("Itinerary " + i + ": 2 flight(s), "
                         + (indirectFlightsList.get(indirectFlightsIndex).get(0).time
@@ -431,36 +442,36 @@ public class Query {
                         + " minutes\n");
                     sb.append(indirectFlightsList.get(indirectFlightsIndex).get(0));
                     sb.append(indirectFlightsList.get(indirectFlightsIndex).get(1));
-                    indirectFlightsIndex++;
 
                     totalFlightsList.add(new ArrayList<Flight>());
                     totalFlightsList.get(totalFlightsList.size() - 1)
                         .add(indirectFlightsList.get(indirectFlightsIndex).get(0));
                     totalFlightsList.get(totalFlightsList.size() - 1)
                         .add(indirectFlightsList.get(indirectFlightsIndex).get(1));
+                    indirectFlightsIndex++;
                   }
                 }
               } else if (directFlightsIndex < directFlights.size()) {
                 sb.append(
                     "Itinerary " + i + ": 1 flight(s), " + directFlights.get(directFlightsIndex).time + " minutes\n");
                 sb.append(directFlights.get(directFlightsIndex));
-                directFlightsIndex++;
 
                 totalFlightsList.add(new ArrayList<Flight>());
                 totalFlightsList.get(totalFlightsList.size() - 1).add(directFlights.get(directFlightsIndex));
+                directFlightsIndex++;
               } else if (indirectFlightsIndex < indirectFlightsList.size()) {
                 sb.append(
                     "Itinerary " + i + ": 2 flight(s), " + (indirectFlightsList.get(indirectFlightsIndex).get(0).time
                         + indirectFlightsList.get(indirectFlightsIndex).get(1).time) + " minutes\n");
                 sb.append(indirectFlightsList.get(indirectFlightsIndex).get(0));
                 sb.append(indirectFlightsList.get(indirectFlightsIndex).get(1));
-                indirectFlightsIndex++;
 
                 totalFlightsList.add(new ArrayList<Flight>());
                 totalFlightsList.get(totalFlightsList.size() - 1)
                     .add(indirectFlightsList.get(indirectFlightsIndex).get(0));
                 totalFlightsList.get(totalFlightsList.size() - 1)
                     .add(indirectFlightsList.get(indirectFlightsIndex).get(1));
+                indirectFlightsIndex++;
               }
             }
 
@@ -542,6 +553,10 @@ public class Query {
     try {
       if (user == null) {
         return "Cannot book reservations, not logged in\n";
+      }
+
+      if (totalFlightsList == null || directFlights == null) {
+        return "No such itinerary " + itineraryId + "\n";
       }
 
       if (totalFlightsList.size() == 0 && directFlights.size() == 0) {
@@ -627,8 +642,6 @@ public class Query {
               flightTwo = new Flight(result_fid, result_dayOfMonth, result_carrierId, result_flightNum,
                   result_originCity, result_destCity, result_time, result_capacity, result_price);
             } catch (Exception e) {
-              System.out.println(e);
-              System.out.println("HIH");
               return "Booking failed\n";
             }
           }
@@ -636,8 +649,6 @@ public class Query {
           reservations.add(new Reservation(id, flightOne, flightTwo, paid, cancelled));
         }
       } catch (Exception e) {
-        System.out.println(e);
-        System.out.println("Third to Last");
         return "Booking failed\n";
       }
 
@@ -687,8 +698,6 @@ public class Query {
 
         createReservationStatement.execute();
       } catch (Exception e) {
-        System.out.println(e);
-        System.out.println("Second to Last");
         return "Booking Failed\n";
       }
 
@@ -711,8 +720,6 @@ public class Query {
 
         id = rs.getInt("id");
       } catch (Exception e) {
-        System.out.println(e);
-        System.out.println("Last");
         return "Booking Failed\n";
       }
 
@@ -741,8 +748,87 @@ public class Query {
    */
   public String transaction_pay(int reservationId) {
     try {
-      // TODO: YOUR CODE HERE
-      return "Failed to pay for reservation " + reservationId + "\n";
+      if (user == null) {
+        return "Cannot pay, not logged in\n";
+      }
+
+      int fid1 = 0;
+      int fid2 = 0;
+      int paid = 0;
+      try {
+        getReservationsStatement.clearParameters();
+        getReservationsStatement.setString(1, user.username.toLowerCase());
+
+        ResultSet reservationsSet = getReservationsStatement.executeQuery();
+
+        boolean found = false;
+        while (reservationsSet.next()) {
+          if (reservationsSet.getInt("id") == reservationId) {
+            found = true;
+            fid1 = reservationsSet.getInt("flight1");
+            fid2 = reservationsSet.getInt("flight2");
+            paid = reservationsSet.getInt("paid");
+          }
+        }
+        if (!found || paid == 1) {
+          return "Cannot find unpaid reservation " + reservationId + " under user: " + user.username + "\n";
+        }
+
+      } catch (SQLException e) {
+        return "Failed to pay for reservation " + reservationId + "\n";
+      }
+
+      int price1 = 0;
+      try {
+        getSingleFlightStatement.clearParameters();
+        getSingleFlightStatement.setInt(1, fid1);
+
+        ResultSet flight = getSingleFlightStatement.executeQuery();
+        flight.next();
+        price1 = flight.getInt("price");
+      } catch (SQLException e) {
+        return "Failed to pay for reservation " + reservationId + "\n";
+      }
+
+      int price2 = 0;
+      if (fid2 != 0) {
+        try {
+          getSingleFlightStatement.clearParameters();
+          getSingleFlightStatement.setInt(1, fid2);
+
+          ResultSet flight = getSingleFlightStatement.executeQuery();
+          flight.next();
+          price2 = flight.getInt("price");
+        } catch (SQLException e) {
+          return "Failed to pay for reservation " + reservationId + "\n";
+        }
+      }
+
+      if (user.balance < price1 + price2) {
+        return "User has only " + user.balance + " in account but itinerary costs " + (price1 + price2) + "\n";
+      }
+
+      try {
+        payReservationStatement.clearParameters();
+        payReservationStatement.setInt(1, reservationId);
+
+        payReservationStatement.executeUpdate();
+      } catch (SQLException e) {
+        return "Failed to pay for reservation " + reservationId + "\n";
+      }
+
+      user.balance -= (price1 + price2);
+      try {
+        updateBalanceStatement.clearParameters();
+        updateBalanceStatement.setInt(1, user.balance);
+        updateBalanceStatement.setString(2, user.username);
+
+        updateBalanceStatement.executeUpdate();
+      } catch (SQLException e) {
+        return "Failed to pay for reservation " + reservationId + "\n";
+      }
+
+      return "Paid reservation: " + reservationId + " remaining balance: " + user.balance + "\n";
     } finally {
       checkDanglingTransaction();
     }
