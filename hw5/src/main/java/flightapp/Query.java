@@ -33,9 +33,6 @@ public class Query {
   private static final String CLEAR_RESERVATOINS_TABLE = "DELETE FROM RESERVATIONS";
   private PreparedStatement clearReservationsTableStatement;
 
-  private static final String RESET_RESERVATIONS_TABLE = "DBCC CHECKIDENT ('RESERVATIONS', RESEED, 0)";
-  private PreparedStatement resetReservationsTableStatement;
-
   private static final String CREATE_USER = "INSERT INTO USERS (username, password, salt, balance) VALUES (?, ?, ?, ?)";
   private PreparedStatement createUserStatement;
 
@@ -67,14 +64,12 @@ public class Query {
       + "SELECT FO.flight1 AS fid1, FO.count AS count1, FT.flight2 AS fid2, FT.count AS count2 FROM FlightOne AS FO, FlightTwo AS FT";
   private PreparedStatement getAllFlightCapacities;
 
-  private static final String CREATE_RESERVATION = "INSERT INTO RESERVATIONS (userid, flight1, flight2, paid, cancelled) VALUES (?, ?, ?, ?, ?)";
+  // private static final String GET_RESERVATION_ID = "SELECT Count(*) AS count
+  // FROM RESERVATIONS";
+  // private PreparedStatement getReservationIdStatement;
+
+  private static final String CREATE_RESERVATION = "INSERT INTO RESERVATIONS (id, userid, flight1, flight2, paid, cancelled) VALUES (?, ?, ?, ?, ?, ?)";
   private PreparedStatement createReservationStatement;
-
-  private static final String GET_TWO_FLIGHT_RESERVATION = "SELECT id FROM RESERVATIONS WHERE flight1 = ? AND flight2 = ?";
-  private PreparedStatement getTwoFlightReservationStatement;
-
-  private static final String GET_ONE_FLIGHT_RESERVATION = "SELECT id FROM RESERVATIONS WHERE flight1 = ? AND flight2 is NULL";
-  private PreparedStatement getOneFlightReservationStatement;
 
   private static final String PAY_RESERVATION = "UPDATE RESERVATIONS SET paid = 1 WHERE id = ?";
   private PreparedStatement payReservationStatement;
@@ -163,9 +158,6 @@ public class Query {
       clearReservationsTableStatement.executeUpdate();
       clearReservationsTableStatement.close();
 
-      resetReservationsTableStatement.execute();
-      resetReservationsTableStatement.close();
-
       clearUsersTableStatement.executeUpdate();
       clearUsersTableStatement.close();
     } catch (Exception e) {
@@ -181,7 +173,6 @@ public class Query {
     tranCountStatement = conn.prepareStatement(TRANCOUNT_SQL);
     clearUsersTableStatement = conn.prepareStatement(CLEAR_USERS_TABLE);
     clearReservationsTableStatement = conn.prepareStatement(CLEAR_RESERVATOINS_TABLE);
-    resetReservationsTableStatement = conn.prepareStatement(RESET_RESERVATIONS_TABLE);
     createUserStatement = conn.prepareStatement(CREATE_USER);
     findUserStatement = conn.prepareStatement(FIND_USER);
     getDirectFlightsStatement = conn.prepareStatement(GET_DIRECT_FLIGHTS);
@@ -190,8 +181,6 @@ public class Query {
     getSingleFlightStatement = conn.prepareStatement(GET_SINGLE_FLIGHT);
     getAllFlightCapacities = conn.prepareStatement(GET_ALL_FLIGHT_CAPACITIES);
     createReservationStatement = conn.prepareStatement(CREATE_RESERVATION);
-    getTwoFlightReservationStatement = conn.prepareStatement(GET_TWO_FLIGHT_RESERVATION);
-    getOneFlightReservationStatement = conn.prepareStatement(GET_ONE_FLIGHT_RESERVATION);
     payReservationStatement = conn.prepareStatement(PAY_RESERVATION);
     updateBalanceStatement = conn.prepareStatement(UPDATE_BALANCE);
   }
@@ -685,15 +674,16 @@ public class Query {
 
       try {
         createReservationStatement.clearParameters();
-        createReservationStatement.setString(1, user.username.toLowerCase());
-        createReservationStatement.setInt(2, flights.get(0).fid);
-        createReservationStatement.setInt(4, 0);
+        createReservationStatement.setInt(1, reservations.size() + 1);
+        createReservationStatement.setString(2, user.username.toLowerCase());
+        createReservationStatement.setInt(3, flights.get(0).fid);
         createReservationStatement.setInt(5, 0);
+        createReservationStatement.setInt(6, 0);
 
         if (flights.size() == 2) {
-          createReservationStatement.setInt(3, flights.get(1).fid);
+          createReservationStatement.setInt(4, flights.get(1).fid);
         } else {
-          createReservationStatement.setNull(3, java.sql.Types.INTEGER);
+          createReservationStatement.setNull(4, java.sql.Types.INTEGER);
         }
 
         createReservationStatement.execute();
@@ -701,29 +691,7 @@ public class Query {
         return "Booking Failed\n";
       }
 
-      int id;
-      try {
-        ResultSet rs;
-        if (flights.size() == 2) {
-          getTwoFlightReservationStatement.clearParameters();
-          getTwoFlightReservationStatement.setInt(1, flights.get(0).fid);
-          getTwoFlightReservationStatement.setInt(2, flights.get(1).fid);
-
-          rs = getTwoFlightReservationStatement.executeQuery();
-        } else {
-          getOneFlightReservationStatement.clearParameters();
-          getOneFlightReservationStatement.setInt(1, flights.get(0).fid);
-
-          rs = getOneFlightReservationStatement.executeQuery();
-        }
-        rs.next();
-
-        id = rs.getInt("id");
-      } catch (Exception e) {
-        return "Booking Failed\n";
-      }
-
-      return "Booked flight(s), reservation ID: " + id + "\n";
+      return "Booked flight(s), reservation ID: " + (reservations.size() + 1) + "\n";
     } finally {
       checkDanglingTransaction();
     }
@@ -870,7 +838,6 @@ public class Query {
           return "No reservations found\n";
         }
 
-        Reservation temp;
         do {
           int reservationId = reservations.getInt("id");
 

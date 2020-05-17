@@ -13,7 +13,7 @@ BEGIN
 
     CREATE TABLE RESERVATIONS
     (
-        id INT IDENTITY(1, 1) PRIMARY KEY,
+        id INT PRIMARY KEY,
         userid VARCHAR(20) FOREIGN KEY REFERENCES USERS(username),
         flight1 INT NOT NULL,
         flight2 INT,
