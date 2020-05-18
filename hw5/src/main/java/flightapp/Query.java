@@ -780,78 +780,104 @@ public class Query {
       int fid2 = 0;
       int paid = 0;
       try {
-        getReservationsStatement.clearParameters();
-        getReservationsStatement.setString(1, user.username.toLowerCase());
+        conn.setAutoCommit(false);
+        try {
+          getReservationsStatement.clearParameters();
+          getReservationsStatement.setString(1, user.username.toLowerCase());
 
-        ResultSet reservationsSet = getReservationsStatement.executeQuery();
+          ResultSet reservationsSet = getReservationsStatement.executeQuery();
 
-        boolean found = false;
-        while (reservationsSet.next()) {
-          if (reservationsSet.getInt("id") == reservationId) {
-            found = true;
-            fid1 = reservationsSet.getInt("flight1");
-            fid2 = reservationsSet.getInt("flight2");
-            paid = reservationsSet.getInt("paid");
+          boolean found = false;
+          while (reservationsSet.next()) {
+            if (reservationsSet.getInt("id") == reservationId) {
+              found = true;
+              fid1 = reservationsSet.getInt("flight1");
+              fid2 = reservationsSet.getInt("flight2");
+              paid = reservationsSet.getInt("paid");
+            }
           }
+          if (!found || paid == 1) {
+            conn.rollback();
+            conn.setAutoCommit(true);
+            return "Cannot find unpaid reservation " + reservationId + " under user: " + user.username + "\n";
+          }
+
+        } catch (SQLException e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          return "Failed to pay for reservation " + reservationId + "\n";
         }
-        if (!found || paid == 1) {
-          return "Cannot find unpaid reservation " + reservationId + " under user: " + user.username + "\n";
-        }
 
-      } catch (SQLException e) {
-        return "Failed to pay for reservation " + reservationId + "\n";
-      }
-
-      int price1 = 0;
-      try {
-        getSingleFlightStatement.clearParameters();
-        getSingleFlightStatement.setInt(1, fid1);
-
-        ResultSet flight = getSingleFlightStatement.executeQuery();
-        flight.next();
-        price1 = flight.getInt("price");
-      } catch (SQLException e) {
-        return "Failed to pay for reservation " + reservationId + "\n";
-      }
-
-      int price2 = 0;
-      if (fid2 != 0) {
+        int price1 = 0;
         try {
           getSingleFlightStatement.clearParameters();
-          getSingleFlightStatement.setInt(1, fid2);
+          getSingleFlightStatement.setInt(1, fid1);
 
           ResultSet flight = getSingleFlightStatement.executeQuery();
           flight.next();
-          price2 = flight.getInt("price");
+          price1 = flight.getInt("price");
         } catch (SQLException e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
           return "Failed to pay for reservation " + reservationId + "\n";
         }
-      }
 
-      if (user.balance < price1 + price2) {
-        return "User has only " + user.balance + " in account but itinerary costs " + (price1 + price2) + "\n";
-      }
+        int price2 = 0;
+        if (fid2 != 0) {
+          try {
+            getSingleFlightStatement.clearParameters();
+            getSingleFlightStatement.setInt(1, fid2);
 
-      try {
-        payReservationStatement.clearParameters();
-        payReservationStatement.setInt(1, reservationId);
+            ResultSet flight = getSingleFlightStatement.executeQuery();
+            flight.next();
+            price2 = flight.getInt("price");
+          } catch (SQLException e) {
+            conn.rollback();
+            conn.setAutoCommit(true);
+            return "Failed to pay for reservation " + reservationId + "\n";
+          }
+        }
 
-        payReservationStatement.executeUpdate();
+        if (user.balance < price1 + price2) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          return "User has only " + user.balance + " in account but itinerary costs " + (price1 + price2) + "\n";
+        }
+
+        try {
+          payReservationStatement.clearParameters();
+          payReservationStatement.setInt(1, reservationId);
+
+          payReservationStatement.executeUpdate();
+        } catch (SQLException e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          return "Failed to pay for reservation " + reservationId + "\n";
+        }
+
+        user.balance -= (price1 + price2);
+        try {
+          updateBalanceStatement.clearParameters();
+          updateBalanceStatement.setInt(1, user.balance);
+          updateBalanceStatement.setString(2, user.username);
+
+          updateBalanceStatement.executeUpdate();
+        } catch (SQLException e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          return "Failed to pay for reservation " + reservationId + "\n";
+        }
+        conn.commit();
+        conn.setAutoCommit(true);
       } catch (SQLException e) {
+        try {
+          conn.rollback();
+          conn.setAutoCommit(true);
+        } catch (SQLException e2) {
+          e2.printStackTrace();
+        }
         return "Failed to pay for reservation " + reservationId + "\n";
       }
-
-      user.balance -= (price1 + price2);
-      try {
-        updateBalanceStatement.clearParameters();
-        updateBalanceStatement.setInt(1, user.balance);
-        updateBalanceStatement.setString(2, user.username);
-
-        updateBalanceStatement.executeUpdate();
-      } catch (SQLException e) {
-        return "Failed to pay for reservation " + reservationId + "\n";
-      }
-
       return "Paid reservation: " + reservationId + " remaining balance: " + user.balance + "\n";
     } finally {
       checkDanglingTransaction();
