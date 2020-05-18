@@ -64,9 +64,8 @@ public class Query {
       + "SELECT FO.flight1 AS fid1, FO.count AS count1, FT.flight2 AS fid2, FT.count AS count2 FROM FlightOne AS FO, FlightTwo AS FT";
   private PreparedStatement getAllFlightCapacities;
 
-  // private static final String GET_RESERVATION_ID = "SELECT Count(*) AS count
-  // FROM RESERVATIONS";
-  // private PreparedStatement getReservationIdStatement;
+  private static final String GET_RESERVATION_ID = "SELECT Count(*) AS count FROM RESERVATIONS";
+  private PreparedStatement getReservationIdStatement;
 
   private static final String CREATE_RESERVATION = "INSERT INTO RESERVATIONS (id, userid, flight1, flight2, paid, cancelled) VALUES (?, ?, ?, ?, ?, ?)";
   private PreparedStatement createReservationStatement;
@@ -182,6 +181,7 @@ public class Query {
     getAllFlightCapacities = conn.prepareStatement(GET_ALL_FLIGHT_CAPACITIES);
     createReservationStatement = conn.prepareStatement(CREATE_RESERVATION);
     payReservationStatement = conn.prepareStatement(PAY_RESERVATION);
+    getReservationIdStatement = conn.prepareStatement(GET_RESERVATION_ID);
     updateBalanceStatement = conn.prepareStatement(UPDATE_BALANCE);
   }
 
@@ -203,13 +203,13 @@ public class Query {
 
       findUserStatement.clearParameters();
       findUserStatement.setString(1, username.toLowerCase());
-      ResultSet rs = findUserStatement.executeQuery();
+      ResultSet userSet = findUserStatement.executeQuery();
 
-      if (!rs.next()) {
+      if (!userSet.next()) {
         return "Login failed\n";
       }
 
-      byte[] salt = rs.getBytes(3);
+      byte[] salt = userSet.getBytes(3);
 
       // Specify the hash parameters
       KeySpec spec = new PBEKeySpec(password.toCharArray(), salt, HASH_STRENGTH, KEY_LENGTH);
@@ -224,11 +224,12 @@ public class Query {
         throw new IllegalStateException();
       }
 
-      if (!Arrays.equals(rs.getBytes(2), hash)) {
+      if (!Arrays.equals(userSet.getBytes(2), hash)) {
         return "Login failed\n";
       }
 
-      user = new User(rs.getString(1), rs.getInt(4));
+      user = new User(userSet.getString(1), userSet.getInt(4));
+      userSet.close();
 
       return "Logged in as " + username + "\n";
     } catch (Exception e) {
@@ -329,18 +330,20 @@ public class Query {
       totalFlightsList = new ArrayList<>();
 
       try {
-        if (directFlight) {
-          directFlights = getAllDirectFlights(originCity, destinationCity, dayOfMonth, numberOfItineraries);
+        directFlights = getAllDirectFlights(originCity, destinationCity, dayOfMonth, numberOfItineraries);
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
 
-          for (int i = 0; i < directFlights.size(); i++) {
-            sb.append("Itinerary " + i + ": 1 flight(s), " + directFlights.get(i).time + " minutes\n");
-            sb.append(directFlights.get(i));
-          }
+      if (directFlight) {
+        for (int i = 0; i < directFlights.size(); i++) {
+          sb.append("Itinerary " + i + ": 1 flight(s), " + directFlights.get(i).time + " minutes\n");
+          sb.append(directFlights.get(i));
+        }
 
-          totalFlightsList.clear();
-        } else {
-          directFlights = getAllDirectFlights(originCity, destinationCity, dayOfMonth, numberOfItineraries);
-
+        totalFlightsList.clear();
+      } else {
+        try {
           if (directFlights.size() < numberOfItineraries) {
             getIndirectFlightsStatement.clearParameters();
             getIndirectFlightsStatement.setInt(1, numberOfItineraries - directFlights.size());
@@ -470,12 +473,11 @@ public class Query {
               sb.append("Itinerary " + i + ": 1 flight(s), " + directFlights.get(i).time + " minutes\n");
               sb.append(directFlights.get(i));
             }
-
-            totalFlightsList.clear();
           }
+          totalFlightsList.clear();
+        } catch (SQLException e) {
+          e.printStackTrace();
         }
-      } catch (SQLException e) {
-        e.printStackTrace();
       }
 
       return sb.toString();
@@ -512,6 +514,7 @@ public class Query {
 
         list.add(flight);
       }
+      directFlights.close();
     } catch (SQLException e) {
       e.printStackTrace();
     }
@@ -571,49 +574,27 @@ public class Query {
       }
 
       List<Reservation> reservations = new ArrayList<>();
-
+      int id = 0;
       try {
-        getReservationsStatement.clearParameters();
-        getReservationsStatement.setString(1, user.username.toLowerCase());
+        conn.setAutoCommit(false);
+        try {
+          getReservationsStatement.clearParameters();
+          getReservationsStatement.setString(1, user.username.toLowerCase());
 
-        ResultSet allReservations = getReservationsStatement.executeQuery();
-        while (allReservations.next()) {
-          int id = allReservations.getInt("id");
-          int flightOneId = allReservations.getInt("flight1");
-          int flightTwoId = allReservations.getInt("flight2");
-          int paid = allReservations.getInt("paid");
-          int cancelled = allReservations.getInt("cancelled");
+          ResultSet allReservations = getReservationsStatement.executeQuery();
+          while (allReservations.next()) {
+            int rid = allReservations.getInt("id");
+            int flightOneId = allReservations.getInt("flight1");
+            int flightTwoId = allReservations.getInt("flight2");
+            int paid = allReservations.getInt("paid");
+            int cancelled = allReservations.getInt("cancelled");
 
-          Flight flightOne = null;
-          Flight flightTwo = null;
+            Flight flightOne = null;
+            Flight flightTwo = null;
 
-          try {
-            getSingleFlightStatement.clearParameters();
-            getSingleFlightStatement.setInt(1, flightOneId);
-
-            ResultSet rs = getSingleFlightStatement.executeQuery();
-            rs.next();
-
-            int result_fid = rs.getInt("fid");
-            int result_dayOfMonth = rs.getInt("day_of_month");
-            String result_carrierId = rs.getString("carrier_id");
-            String result_flightNum = rs.getString("flight_num");
-            String result_originCity = rs.getString("origin_city");
-            String result_destCity = rs.getString("dest_city");
-            int result_time = rs.getInt("actual_time");
-            int result_capacity = rs.getInt("capacity");
-            int result_price = rs.getInt("price");
-
-            flightOne = new Flight(result_fid, result_dayOfMonth, result_carrierId, result_flightNum, result_originCity,
-                result_destCity, result_time, result_capacity, result_price);
-          } catch (Exception e) {
-            return "Booking failed\n";
-          }
-
-          if (flightTwoId != 0) {
             try {
               getSingleFlightStatement.clearParameters();
-              getSingleFlightStatement.setInt(1, flightTwoId);
+              getSingleFlightStatement.setInt(1, flightOneId);
 
               ResultSet rs = getSingleFlightStatement.executeQuery();
               rs.next();
@@ -628,70 +609,143 @@ public class Query {
               int result_capacity = rs.getInt("capacity");
               int result_price = rs.getInt("price");
 
-              flightTwo = new Flight(result_fid, result_dayOfMonth, result_carrierId, result_flightNum,
+              flightOne = new Flight(result_fid, result_dayOfMonth, result_carrierId, result_flightNum,
                   result_originCity, result_destCity, result_time, result_capacity, result_price);
             } catch (Exception e) {
+              conn.rollback();
+              conn.setAutoCommit(true);
+              System.out.println("First");
               return "Booking failed\n";
             }
+
+            if (flightTwoId != 0) {
+              try {
+                getSingleFlightStatement.clearParameters();
+                getSingleFlightStatement.setInt(1, flightTwoId);
+
+                ResultSet rs = getSingleFlightStatement.executeQuery();
+                rs.next();
+
+                int result_fid = rs.getInt("fid");
+                int result_dayOfMonth = rs.getInt("day_of_month");
+                String result_carrierId = rs.getString("carrier_id");
+                String result_flightNum = rs.getString("flight_num");
+                String result_originCity = rs.getString("origin_city");
+                String result_destCity = rs.getString("dest_city");
+                int result_time = rs.getInt("actual_time");
+                int result_capacity = rs.getInt("capacity");
+                int result_price = rs.getInt("price");
+
+                flightTwo = new Flight(result_fid, result_dayOfMonth, result_carrierId, result_flightNum,
+                    result_originCity, result_destCity, result_time, result_capacity, result_price);
+              } catch (Exception e) {
+                conn.rollback();
+                conn.setAutoCommit(true);
+                System.out.println("Second");
+                return "Booking failed\n";
+              }
+            }
+
+            reservations.add(new Reservation(rid, flightOne, flightTwo, paid, cancelled));
           }
-
-          reservations.add(new Reservation(id, flightOne, flightTwo, paid, cancelled));
+        } catch (Exception e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          System.out.println("Third");
+          return "Booking failed\n";
         }
-      } catch (Exception e) {
-        return "Booking failed\n";
-      }
 
-      for (Reservation r : reservations) {
-        if (r.flightOne.dayOfMonth == flights.get(0).dayOfMonth) {
-          return "You cannot book two flights in the same day\n";
-        }
-      }
-
-      Map<Integer, Integer> flightCapacities = new HashMap<>();
-      try {
-        getAllFlightCapacities.clearParameters();
-        ResultSet rs = getAllFlightCapacities.executeQuery();
-
-        while (rs.next()) {
-          if (rs.getInt("fid1") != 0) {
-            flightCapacities.put(rs.getInt("fid1"), rs.getInt("count1"));
-          }
-          if (rs.getInt("fid2") != 0) {
-            flightCapacities.put(rs.getInt("fid2"), rs.getInt("count2"));
+        for (Reservation r : reservations) {
+          if (r.flightOne.dayOfMonth == flights.get(0).dayOfMonth) {
+            conn.rollback();
+            conn.setAutoCommit(true);
+            return "You cannot book two flights in the same day\n";
           }
         }
 
-        for (Flight f : flights) {
-          if (flightCapacities.containsKey(f.fid)) {
-            if (flightCapacities.get(f.fid) + 1 > f.capacity) {
-              return "Booking Failed\n";
+        Map<Integer, Integer> flightCapacities = new HashMap<>();
+        try {
+          getAllFlightCapacities.clearParameters();
+          ResultSet rs = getAllFlightCapacities.executeQuery();
+
+          while (rs.next()) {
+            if (rs.getInt("fid1") != 0) {
+              flightCapacities.put(rs.getInt("fid1"), rs.getInt("count1"));
+            }
+            if (rs.getInt("fid2") != 0) {
+              flightCapacities.put(rs.getInt("fid2"), rs.getInt("count2"));
             }
           }
+
+          for (Flight f : flights) {
+            if (flightCapacities.containsKey(f.fid)) {
+              if (flightCapacities.get(f.fid) + 1 > f.capacity) {
+                conn.rollback();
+                conn.setAutoCommit(true);
+                System.out.println("Fourth");
+                return "Booking failed\n";
+              }
+            }
+          }
+        } catch (Exception e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          System.out.println("Fifth");
+          return "Booking failed\n";
         }
-      } catch (Exception e) {
+
+        try {
+          getReservationIdStatement.clearParameters();
+          ResultSet counts = getReservationIdStatement.executeQuery();
+          counts.next();
+
+          id = counts.getInt("count") + 1;
+        } catch (SQLException e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          System.out.println("Six");
+          return "Booking failed\n";
+        }
+
+        try {
+          createReservationStatement.clearParameters();
+          createReservationStatement.setInt(1, id);
+          createReservationStatement.setString(2, user.username.toLowerCase());
+          createReservationStatement.setInt(3, flights.get(0).fid);
+          createReservationStatement.setInt(5, 0);
+          createReservationStatement.setInt(6, 0);
+
+          if (flights.size() == 2) {
+            createReservationStatement.setInt(4, flights.get(1).fid);
+          } else {
+            createReservationStatement.setNull(4, java.sql.Types.INTEGER);
+          }
+
+          createReservationStatement.execute();
+        } catch (SQLException e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          System.out.println("Seventh");
+          return "Booking failed\n";
+        }
+        conn.commit();
+        conn.setAutoCommit(true);
+      } catch (SQLException e) {
+        try {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          if (e.getMessage().contains("deadlock")) {
+            conn.rollback();
+            conn.setAutoCommit(true);
+            return transaction_book(itineraryId);
+          }
+        } catch (SQLException e2) {
+          e2.printStackTrace();
+        }
+        System.out.println("Eighth");
         return "Booking failed\n";
       }
-
-      try {
-        createReservationStatement.clearParameters();
-        createReservationStatement.setInt(1, reservations.size() + 1);
-        createReservationStatement.setString(2, user.username.toLowerCase());
-        createReservationStatement.setInt(3, flights.get(0).fid);
-        createReservationStatement.setInt(5, 0);
-        createReservationStatement.setInt(6, 0);
-
-        if (flights.size() == 2) {
-          createReservationStatement.setInt(4, flights.get(1).fid);
-        } else {
-          createReservationStatement.setNull(4, java.sql.Types.INTEGER);
-        }
-
-        createReservationStatement.execute();
-      } catch (Exception e) {
-        return "Booking Failed\n";
-      }
-
-      return "Booked flight(s), reservation ID: " + (reservations.size() + 1) + "\n";
+      return "Booked flight(s), reservation ID: " + id + "\n";
     } finally {
       checkDanglingTransaction();
     }
