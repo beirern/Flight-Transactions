@@ -723,8 +723,12 @@ public class Query {
 
           createReservationStatement.execute();
         } catch (SQLException e) {
+          System.out.println(e.getMessage());
           conn.rollback();
           conn.setAutoCommit(true);
+          if (e.getMessage().contains("deadlock")) {
+            return transaction_book(itineraryId);
+          }
           System.out.println("Seventh");
           return "Booking failed\n";
         }
@@ -735,8 +739,6 @@ public class Query {
           conn.rollback();
           conn.setAutoCommit(true);
           if (e.getMessage().contains("deadlock")) {
-            conn.rollback();
-            conn.setAutoCommit(true);
             return transaction_book(itineraryId);
           }
         } catch (SQLException e2) {
@@ -884,48 +886,30 @@ public class Query {
 
       StringBuffer sb = new StringBuffer();
       try {
-        getReservationsStatement.clearParameters();
-        getReservationsStatement.setString(1, user.username.toLowerCase());
+        conn.setAutoCommit(false);
+        try {
+          getReservationsStatement.clearParameters();
+          getReservationsStatement.setString(1, user.username.toLowerCase());
 
-        ResultSet reservations = getReservationsStatement.executeQuery();
-        if (!reservations.next()) {
-          return "No reservations found\n";
-        }
-
-        do {
-          int reservationId = reservations.getInt("id");
-
-          int fid1 = reservations.getInt("flight1");
-          int fid2 = reservations.getInt("flight2");
-          int paid = reservations.getInt("paid");
-          int cancelled = reservations.getInt("cancelled");
-
-          Flight flight1 = null;
-          try {
-            getSingleFlightStatement.clearParameters();
-            getSingleFlightStatement.setInt(1, fid1);
-
-            ResultSet flight = getSingleFlightStatement.executeQuery();
-            flight.next();
-
-            int dayOfMonth = flight.getInt("day_of_month");
-            String carrierId = flight.getString("carrier_id");
-            String flightNum = flight.getString("flight_num");
-            String originCity = flight.getString("origin_city");
-            String destCity = flight.getString("dest_city");
-            int time = flight.getInt("actual_time");
-            int capacity = flight.getInt("capacity");
-            int price = flight.getInt("price");
-            flight1 = new Flight(fid1, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity, price);
-          } catch (SQLException e) {
-            return "Failed to retrieve reservations\n";
+          ResultSet reservations = getReservationsStatement.executeQuery();
+          if (!reservations.next()) {
+            conn.rollback();
+            conn.setAutoCommit(true);
+            return "No reservations found\n";
           }
 
-          Flight flight2 = null;
-          if (fid2 != 0) {
+          do {
+            int reservationId = reservations.getInt("id");
+
+            int fid1 = reservations.getInt("flight1");
+            int fid2 = reservations.getInt("flight2");
+            int paid = reservations.getInt("paid");
+            int cancelled = reservations.getInt("cancelled");
+
+            Flight flight1 = null;
             try {
               getSingleFlightStatement.clearParameters();
-              getSingleFlightStatement.setInt(1, fid2);
+              getSingleFlightStatement.setInt(1, fid1);
 
               ResultSet flight = getSingleFlightStatement.executeQuery();
               flight.next();
@@ -938,18 +922,57 @@ public class Query {
               int time = flight.getInt("actual_time");
               int capacity = flight.getInt("capacity");
               int price = flight.getInt("price");
-              flight2 = new Flight(fid2, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity, price);
+              flight1 = new Flight(fid1, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity, price);
             } catch (SQLException e) {
+              conn.rollback();
+              conn.setAutoCommit(true);
               return "Failed to retrieve reservations\n";
             }
-          }
 
-          sb.append(new Reservation(reservationId, flight1, flight2, paid, cancelled));
-        } while (reservations.next());
+            Flight flight2 = null;
+            if (fid2 != 0) {
+              try {
+                getSingleFlightStatement.clearParameters();
+                getSingleFlightStatement.setInt(1, fid2);
+
+                ResultSet flight = getSingleFlightStatement.executeQuery();
+                flight.next();
+
+                int dayOfMonth = flight.getInt("day_of_month");
+                String carrierId = flight.getString("carrier_id");
+                String flightNum = flight.getString("flight_num");
+                String originCity = flight.getString("origin_city");
+                String destCity = flight.getString("dest_city");
+                int time = flight.getInt("actual_time");
+                int capacity = flight.getInt("capacity");
+                int price = flight.getInt("price");
+                flight2 = new Flight(fid2, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity,
+                    price);
+              } catch (SQLException e) {
+                conn.rollback();
+                conn.setAutoCommit(true);
+                return "Failed to retrieve reservations\n";
+              }
+            }
+
+            sb.append(new Reservation(reservationId, flight1, flight2, paid, cancelled));
+          } while (reservations.next());
+        } catch (SQLException e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          return "Failed to retrieve reservations\n";
+        }
+        conn.commit();
+        conn.setAutoCommit(true);
       } catch (SQLException e) {
-        return "Failed to retrieve reservations\n";
+        try {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          return "Failed to retrieve reservations\n";
+        } catch (SQLException e2) {
+          e.printStackTrace();
+        }
       }
-
       return sb.toString();
     } finally {
       checkDanglingTransaction();
