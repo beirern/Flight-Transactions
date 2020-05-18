@@ -76,6 +76,9 @@ public class Query {
   private static final String UPDATE_BALANCE = "UPDATE USERS SET balance = ? WHERE username = ?";
   private PreparedStatement updateBalanceStatement;
 
+  private static final String CANCEL_RESERVATION = "UPDATE RESERVATIONS SET cancelled = 1 WHERE id = ?";
+  private PreparedStatement cancelReservationStatement;
+
   private User user;
   private List<Flight> directFlights;
   private List<List<Flight>> totalFlightsList;
@@ -183,6 +186,7 @@ public class Query {
     payReservationStatement = conn.prepareStatement(PAY_RESERVATION);
     getReservationIdStatement = conn.prepareStatement(GET_RESERVATION_ID);
     updateBalanceStatement = conn.prepareStatement(UPDATE_BALANCE);
+    cancelReservationStatement = conn.prepareStatement(CANCEL_RESERVATION);
   }
 
   /**
@@ -789,7 +793,7 @@ public class Query {
 
           boolean found = false;
           while (reservationsSet.next()) {
-            if (reservationsSet.getInt("id") == reservationId) {
+            if (reservationsSet.getInt("id") == reservationId && reservationsSet.getInt("cancelled") == 0) {
               found = true;
               fid1 = reservationsSet.getInt("flight1");
               fid2 = reservationsSet.getInt("flight2");
@@ -932,34 +936,11 @@ public class Query {
             int paid = reservations.getInt("paid");
             int cancelled = reservations.getInt("cancelled");
 
-            Flight flight1 = null;
-            try {
-              getSingleFlightStatement.clearParameters();
-              getSingleFlightStatement.setInt(1, fid1);
-
-              ResultSet flight = getSingleFlightStatement.executeQuery();
-              flight.next();
-
-              int dayOfMonth = flight.getInt("day_of_month");
-              String carrierId = flight.getString("carrier_id");
-              String flightNum = flight.getString("flight_num");
-              String originCity = flight.getString("origin_city");
-              String destCity = flight.getString("dest_city");
-              int time = flight.getInt("actual_time");
-              int capacity = flight.getInt("capacity");
-              int price = flight.getInt("price");
-              flight1 = new Flight(fid1, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity, price);
-            } catch (SQLException e) {
-              conn.rollback();
-              conn.setAutoCommit(true);
-              return "Failed to retrieve reservations\n";
-            }
-
-            Flight flight2 = null;
-            if (fid2 != 0) {
+            if (cancelled == 0) {
+              Flight flight1 = null;
               try {
                 getSingleFlightStatement.clearParameters();
-                getSingleFlightStatement.setInt(1, fid2);
+                getSingleFlightStatement.setInt(1, fid1);
 
                 ResultSet flight = getSingleFlightStatement.executeQuery();
                 flight.next();
@@ -972,16 +953,42 @@ public class Query {
                 int time = flight.getInt("actual_time");
                 int capacity = flight.getInt("capacity");
                 int price = flight.getInt("price");
-                flight2 = new Flight(fid2, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity,
+                flight1 = new Flight(fid1, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity,
                     price);
               } catch (SQLException e) {
                 conn.rollback();
                 conn.setAutoCommit(true);
                 return "Failed to retrieve reservations\n";
               }
-            }
 
-            sb.append(new Reservation(reservationId, flight1, flight2, paid, cancelled));
+              Flight flight2 = null;
+              if (fid2 != 0) {
+                try {
+                  getSingleFlightStatement.clearParameters();
+                  getSingleFlightStatement.setInt(1, fid2);
+
+                  ResultSet flight = getSingleFlightStatement.executeQuery();
+                  flight.next();
+
+                  int dayOfMonth = flight.getInt("day_of_month");
+                  String carrierId = flight.getString("carrier_id");
+                  String flightNum = flight.getString("flight_num");
+                  String originCity = flight.getString("origin_city");
+                  String destCity = flight.getString("dest_city");
+                  int time = flight.getInt("actual_time");
+                  int capacity = flight.getInt("capacity");
+                  int price = flight.getInt("price");
+                  flight2 = new Flight(fid2, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity,
+                      price);
+                } catch (SQLException e) {
+                  conn.rollback();
+                  conn.setAutoCommit(true);
+                  return "Failed to retrieve reservations\n";
+                }
+              }
+
+              sb.append(new Reservation(reservationId, flight1, flight2, paid, cancelled));
+            }
           } while (reservations.next());
         } catch (SQLException e) {
           conn.rollback();
@@ -1021,8 +1028,167 @@ public class Query {
    */
   public String transaction_cancel(int reservationId) {
     try {
-      // TODO: YOUR CODE HERE
-      return "Failed to cancel reservation " + reservationId + "\n";
+      if (user == null) {
+        return "Cannot cancel reservations, not logged in\n";
+      }
+
+      try {
+        conn.setAutoCommit(false);
+        try {
+          getReservationsStatement.clearParameters();
+          getReservationsStatement.setString(1, user.username.toLowerCase());
+
+          ResultSet reservations = getReservationsStatement.executeQuery();
+          if (!reservations.next()) {
+            conn.rollback();
+            conn.setAutoCommit(true);
+            return "Failed to cancel reservation " + reservationId + "\n";
+          }
+
+          List<Reservation> reservationList = new ArrayList<>();
+          do {
+            int rid = reservations.getInt("id");
+            int fid1 = reservations.getInt("flight1");
+            int fid2 = reservations.getInt("flight2");
+            int paid = reservations.getInt("paid");
+            int cancelled = reservations.getInt("cancelled");
+
+            Flight flight1 = null;
+            try {
+              getSingleFlightStatement.clearParameters();
+              getSingleFlightStatement.setInt(1, fid1);
+
+              ResultSet flight = getSingleFlightStatement.executeQuery();
+              flight.next();
+
+              int dayOfMonth = flight.getInt("day_of_month");
+              String carrierId = flight.getString("carrier_id");
+              String flightNum = flight.getString("flight_num");
+              String originCity = flight.getString("origin_city");
+              String destCity = flight.getString("dest_city");
+              int time = flight.getInt("actual_time");
+              int capacity = flight.getInt("capacity");
+              int price = flight.getInt("price");
+              flight1 = new Flight(fid1, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity, price);
+            } catch (SQLException e) {
+              conn.rollback();
+              conn.setAutoCommit(true);
+              return "Failed to cancel reservation " + reservationId + "\n";
+            }
+
+            Flight flight2 = null;
+            if (fid2 != 0) {
+              try {
+                getSingleFlightStatement.clearParameters();
+                getSingleFlightStatement.setInt(1, fid2);
+
+                ResultSet flight = getSingleFlightStatement.executeQuery();
+                flight.next();
+
+                int dayOfMonth = flight.getInt("day_of_month");
+                String carrierId = flight.getString("carrier_id");
+                String flightNum = flight.getString("flight_num");
+                String originCity = flight.getString("origin_city");
+                String destCity = flight.getString("dest_city");
+                int time = flight.getInt("actual_time");
+                int capacity = flight.getInt("capacity");
+                int price = flight.getInt("price");
+                flight2 = new Flight(fid2, dayOfMonth, carrierId, flightNum, originCity, destCity, time, capacity,
+                    price);
+              } catch (SQLException e) {
+                conn.rollback();
+                conn.setAutoCommit(true);
+                return "Failed to cancel reservation " + reservationId + "\n";
+              }
+            }
+            reservationList.add(new Reservation(rid, flight1, flight2, paid, cancelled));
+          } while (reservations.next());
+
+          boolean found = false;
+          Reservation deleted = null;
+          for (Reservation r : reservationList) {
+            if (r.id == reservationId && !r.canceled) {
+              found = true;
+              deleted = r;
+            }
+          }
+          if (!found) {
+            conn.rollback();
+            conn.setAutoCommit(true);
+            return "Failed to cancel reservation " + reservationId + "\n";
+          }
+
+          if (deleted.paid) {
+            int price1 = 0;
+            try {
+              getSingleFlightStatement.clearParameters();
+              getSingleFlightStatement.setInt(1, deleted.flightOne.fid);
+
+              ResultSet flight = getSingleFlightStatement.executeQuery();
+              flight.next();
+              price1 = flight.getInt("price");
+            } catch (SQLException e) {
+              conn.rollback();
+              conn.setAutoCommit(true);
+              return "Failed to cancel reservation " + reservationId + "\n";
+            }
+
+            int price2 = 0;
+            if (deleted.flightTwo != null) {
+              try {
+                getSingleFlightStatement.clearParameters();
+                getSingleFlightStatement.setInt(1, deleted.flightTwo.fid);
+
+                ResultSet flight = getSingleFlightStatement.executeQuery();
+                flight.next();
+                price2 = flight.getInt("price");
+              } catch (SQLException e) {
+                conn.rollback();
+                conn.setAutoCommit(true);
+                return "Failed to cancel reservation " + reservationId + "\n";
+              }
+            }
+            user.balance += price1 + price2;
+          }
+
+          try {
+            updateBalanceStatement.clearParameters();
+            updateBalanceStatement.setInt(1, user.balance);
+            updateBalanceStatement.setString(2, user.username.toLowerCase());
+            updateBalanceStatement.executeUpdate();
+          } catch (SQLException e) {
+            conn.rollback();
+            conn.setAutoCommit(true);
+            return "Failed to cancel reservation " + reservationId + "\n";
+          }
+
+          try {
+            cancelReservationStatement.clearParameters();
+            cancelReservationStatement.setInt(1, reservationId);
+            cancelReservationStatement.executeUpdate();
+          } catch (SQLException e) {
+            conn.rollback();
+            conn.setAutoCommit(true);
+            return "Failed to cancel reservation " + reservationId + "\n";
+          }
+
+          conn.commit();
+          conn.setAutoCommit(true);
+        } catch (SQLException e) {
+          conn.rollback();
+          conn.setAutoCommit(true);
+          return "Failed to cancel reservation " + reservationId + "\n";
+        }
+      } catch (SQLException e) {
+        try {
+          conn.rollback();
+          conn.setAutoCommit(true);
+        } catch (SQLException e2) {
+          e2.printStackTrace();
+        }
+        e.printStackTrace();
+      }
+      return "Canceled reservation " + reservationId + "\n";
     } finally {
       checkDanglingTransaction();
     }
