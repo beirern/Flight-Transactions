@@ -52,15 +52,15 @@ public class Query {
       + "AND F1.day_of_month = ? AND F2.day_of_month = ? AND F2.canceled = 0 ORDER BY F1.actual_time + F2.actual_time ASC, F1.fid ASC, F2.fid ASC";
   private PreparedStatement getIndirectFlightsStatement;
 
-  private static final String GET_RESERVATIONS = "SELECT * FROM RESERVATIONS WHERE userid = ?";
+  private static final String GET_RESERVATIONS = "SELECT * FROM RESERVATIONS WHERE userid = ? AND cancelled = 0";
   private PreparedStatement getReservationsStatement;
 
   private static final String GET_SINGLE_FLIGHT = "SELECT fid, day_of_month, carrier_id, flight_num, origin_city, dest_city, actual_time, capacity, price "
       + "FROM FLIGHTS WHERE fid = ?";
   private PreparedStatement getSingleFlightStatement;
 
-  private static final String GET_ALL_FLIGHT_CAPACITIES = "WITH FlightOne(flight1, count) AS (SELECT flight1, Count(flight1) FROM RESERVATIONS GROUP BY flight1), "
-      + "FlightTwo(flight2, count) AS (SELECT flight2, Count(flight2) FROM RESERVATIONS GROUP BY flight2) "
+  private static final String GET_ALL_FLIGHT_CAPACITIES = "WITH FlightOne(flight1, count) AS (SELECT flight1, Count(flight1) FROM RESERVATIONS WHERE cancelled = 0 GROUP BY flight1), "
+      + "FlightTwo(flight2, count) AS (SELECT flight2, Count(flight2) FROM RESERVATIONS WHERE cancelled = 0 GROUP BY flight2) "
       + "SELECT FO.flight1 AS fid1, FO.count AS count1, FT.flight2 AS fid2, FT.count AS count2 FROM FlightOne AS FO, FlightTwo AS FT";
   private PreparedStatement getAllFlightCapacities;
 
@@ -660,7 +660,7 @@ public class Query {
         }
 
         for (Reservation r : reservations) {
-          if (r.flightOne.dayOfMonth == flights.get(0).dayOfMonth) {
+          if (r.flightOne.dayOfMonth == flights.get(0).dayOfMonth && !r.canceled) {
             conn.rollback();
             conn.setAutoCommit(true);
             return "You cannot book two flights in the same day\n";
