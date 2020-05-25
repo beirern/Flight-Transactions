@@ -163,7 +163,7 @@ public class Query {
       clearUsersTableStatement.executeUpdate();
       clearUsersTableStatement.close();
     } catch (Exception e) {
-      e.printStackTrace();
+      e.getMessage();
     }
   }
 
@@ -336,7 +336,7 @@ public class Query {
       try {
         directFlights = getAllDirectFlights(originCity, destinationCity, dayOfMonth, numberOfItineraries);
       } catch (Exception e) {
-        e.printStackTrace();
+        e.getMessage();
       }
 
       if (directFlight) {
@@ -480,7 +480,7 @@ public class Query {
           }
           totalFlightsList.clear();
         } catch (SQLException e) {
-          e.printStackTrace();
+          e.getMessage();
         }
       }
 
@@ -520,7 +520,7 @@ public class Query {
       }
       directFlights.close();
     } catch (SQLException e) {
-      e.printStackTrace();
+      e.getErrorCode();
     }
 
     return list;
@@ -618,7 +618,6 @@ public class Query {
             } catch (Exception e) {
               conn.rollback();
               conn.setAutoCommit(true);
-              System.out.println("First");
               return "Booking failed\n";
             }
 
@@ -645,7 +644,6 @@ public class Query {
               } catch (Exception e) {
                 conn.rollback();
                 conn.setAutoCommit(true);
-                System.out.println("Second");
                 return "Booking failed\n";
               }
             }
@@ -655,7 +653,6 @@ public class Query {
         } catch (Exception e) {
           conn.rollback();
           conn.setAutoCommit(true);
-          System.out.println("Third");
           return "Booking failed\n";
         }
 
@@ -686,7 +683,6 @@ public class Query {
               if (flightCapacities.get(f.fid) + 1 > f.capacity) {
                 conn.rollback();
                 conn.setAutoCommit(true);
-                System.out.println("Fourth");
                 return "Booking failed\n";
               }
             }
@@ -694,7 +690,6 @@ public class Query {
         } catch (Exception e) {
           conn.rollback();
           conn.setAutoCommit(true);
-          System.out.println("Fifth");
           return "Booking failed\n";
         }
 
@@ -707,7 +702,6 @@ public class Query {
         } catch (SQLException e) {
           conn.rollback();
           conn.setAutoCommit(true);
-          System.out.println("Six");
           return "Booking failed\n";
         }
 
@@ -727,13 +721,11 @@ public class Query {
 
           createReservationStatement.execute();
         } catch (SQLException e) {
-          System.out.println(e.getMessage());
           conn.rollback();
           conn.setAutoCommit(true);
           if (e.getMessage().contains("deadlock")) {
             return transaction_book(itineraryId);
           }
-          System.out.println("Seventh");
           return "Booking failed\n";
         }
         conn.commit();
@@ -748,7 +740,6 @@ public class Query {
         } catch (SQLException e2) {
           e2.printStackTrace();
         }
-        System.out.println("Eighth");
         return "Booking failed\n";
       }
       return "Booked flight(s), reservation ID: " + id + "\n";
@@ -1003,7 +994,7 @@ public class Query {
           conn.setAutoCommit(true);
           return "Failed to retrieve reservations\n";
         } catch (SQLException e2) {
-          e.printStackTrace();
+          e2.getErrorCode();
         }
       }
       return sb.toString();
@@ -1184,9 +1175,9 @@ public class Query {
           conn.rollback();
           conn.setAutoCommit(true);
         } catch (SQLException e2) {
-          e2.printStackTrace();
+          e2.getErrorCode();
         }
-        e.printStackTrace();
+        e.getSQLState();
       }
       return "Canceled reservation " + reservationId + "\n";
     } finally {
