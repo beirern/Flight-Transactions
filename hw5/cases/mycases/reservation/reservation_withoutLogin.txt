@@ -1,0 +1,13 @@
+# user 1 inputs
+#
+create user1 user1 100000
+reservations
+quit
+*
+#
+# expected printouts for user 1
+#
+Created user user1
+Cannot view reservations, not logged in
+Goodbye
+*

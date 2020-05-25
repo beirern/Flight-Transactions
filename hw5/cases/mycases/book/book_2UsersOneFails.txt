@@ -1,0 +1,36 @@
+# This tests two users trying to book the same flight with only 1 seat left.
+# One of them should succeed and the other should fail.
+#
+# user 1
+create user1 user1 10000
+login user1 user1
+search "Washington DC" "Minneapolis MN" 1 23 1
+book 0
+quit
+*
+#
+#
+Created user user1
+Logged in as user1
+Itinerary 0: 1 flight(s), 10 minutes
+ID: 329808 Day: 23 Carrier: NW Number: 1271 Origin: Washington DC Dest: Minneapolis MN Duration: 10 Capacity: 2 Price: 651
+Booked flight(s), reservation ID: 1
+Goodbye
+*
+#
+# similarly for user 2
+#
+create user2 user2 10000
+login user2 user2
+search "Washington DC" "Minneapolis MN" 1 23 1
+book 1
+quit
+*
+#
+Created user user2
+Logged in as user2
+Itinerary 0: 1 flight(s), 10 minutes
+ID: 329808 Day: 23 Carrier: NW Number: 1271 Origin: Washington DC Dest: Minneapolis MN Duration: 10 Capacity: 2 Price: 651
+No such itinerary 1
+Goodbye
+*
