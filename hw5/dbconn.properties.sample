@@ -1,0 +1,13 @@
+# Database connection settings. Add in property between brackets and remove brackets.
+
+# TODO: Enter the server URL.
+flightapp.server_url = [SERVER URL HERE]
+
+# TODO: Enter your database name.
+flightapp.database_name = [DATABASE NAME HERE]
+
+# TODO: Enter the admin username of your server.
+flightapp.username = [ADMIN USERNAME HERE]
+
+# TODO: Add your admin password.
+flightapp.password = [ADMIN PASSWORD HERE]
